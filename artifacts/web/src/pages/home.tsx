@@ -2,31 +2,29 @@ import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { useCourses, CourseType } from "@/hooks/use-courses";
 import { formatRemainingLessons } from "@/lib/formatter";
-import { Plus, Download, Upload, Trash2, Filter } from "lucide-react";
-import { format } from "date-fns";
+import { Plus, Download, Upload, Trash2, Filter, Pencil } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { Progress } from "@/components/ui/progress";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import { cn } from "@/lib/utils";
 
 const COURSE_TYPE_LABELS: Record<CourseType, string> = {
   online: "線上課",
   material: "實體教材",
   book: "書籍",
   video: "影片",
-  other: "其他"
+  other: "其他",
 };
 
 export default function Home() {
   const { courses, lessons, isLoaded, deleteCourse, exportData, importData } = useCourses();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
-  
+
   const [filterType, setFilterType] = useState<CourseType | "all">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "completed">("all");
-  
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   if (!isLoaded) return null;
@@ -34,7 +32,6 @@ export default function Home() {
   const handleImport = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-    
     const reader = new FileReader();
     reader.onload = (event) => {
       const result = event.target?.result as string;
@@ -49,32 +46,40 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const filteredCourses = courses.filter(c => {
+  const filteredCourses = courses.filter((c) => {
     if (filterType !== "all" && c.courseType !== filterType) return false;
-    
     const courseLessons = lessons[c.id] || [];
-    const completedCount = courseLessons.filter(l => l.completed).length;
+    const completedCount = courseLessons.filter((l) => l.completed).length;
     const isCompleted = completedCount === c.totalLessons && c.totalLessons > 0;
-    
     if (filterStatus === "active" && isCompleted) return false;
     if (filterStatus === "completed" && !isCompleted) return false;
-    
     return true;
   });
 
+  const activeFilterCount =
+    (filterType !== "all" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
+
   return (
     <div className="flex flex-col h-full bg-muted/30">
-      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border/50 px-4 py-4 flex items-center justify-between">
+      {/* Header */}
+      <header className="sticky top-0 z-10 bg-background/80 backdrop-blur-xl border-b border-border/50 px-4 py-4 flex items-center justify-between gap-3">
         <div>
           <h1 className="text-xl font-bold tracking-tight text-foreground">課程使用紀錄</h1>
           <p className="text-xs text-muted-foreground mt-0.5">你的專屬學習夥伴</p>
         </div>
-        <div className="flex gap-2">
+        <div className="flex items-center gap-2">
           <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleImport} />
+
+          {/* Filter menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
-              <Button variant="ghost" size="icon" className="h-9 w-9 rounded-full">
+              <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full">
                 <Filter className="w-4 h-4" />
+                {activeFilterCount > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 h-4 w-4 rounded-full bg-primary text-[10px] text-primary-foreground flex items-center justify-center font-bold">
+                    {activeFilterCount}
+                  </span>
+                )}
               </Button>
             </DropdownMenuTrigger>
             <DropdownMenuContent align="end" className="w-48 rounded-xl">
@@ -93,7 +98,7 @@ export default function Home() {
               <DropdownMenuItem onClick={() => setFilterType("all")}>
                 <span className={filterType === "all" ? "font-bold text-primary" : ""}>全部類型</span>
               </DropdownMenuItem>
-              {(Object.keys(COURSE_TYPE_LABELS) as CourseType[]).map(type => (
+              {(Object.keys(COURSE_TYPE_LABELS) as CourseType[]).map((type) => (
                 <DropdownMenuItem key={type} onClick={() => setFilterType(type)}>
                   <span className={filterType === type ? "font-bold text-primary" : ""}>{COURSE_TYPE_LABELS[type]}</span>
                 </DropdownMenuItem>
@@ -107,10 +112,19 @@ export default function Home() {
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
+
+          {/* Add button */}
+          <Link href="/add">
+            <Button size="sm" className="rounded-full px-4 h-9 gap-1.5">
+              <Plus className="w-4 h-4" />
+              新增課程
+            </Button>
+          </Link>
         </div>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-4 pb-24">
+      {/* Main content */}
+      <main className="flex-1 overflow-auto p-4">
         {filteredCourses.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
             <div className="w-16 h-16 rounded-full bg-primary/10 flex items-center justify-center mb-4">
@@ -118,85 +132,152 @@ export default function Home() {
             </div>
             <h3 className="text-lg font-medium text-foreground">還沒有課程</h3>
             <p className="text-sm text-muted-foreground mt-1 max-w-[200px]">
-              點擊下方的按鈕，開始記錄你的學習進度吧。
+              點擊右上角的按鈕，開始記錄你的學習進度吧。
             </p>
           </div>
         ) : (
-          filteredCourses.map(course => {
-            const courseLessons = lessons[course.id] || [];
-            const completedCount = courseLessons.filter(l => l.completed).length;
-            const isCompleted = completedCount === course.totalLessons;
-            const progress = course.totalLessons > 0 ? (completedCount / course.totalLessons) * 100 : 0;
-            const uncompletedNums = courseLessons.filter(l => !l.completed).map(l => l.lessonNumber);
-            const remainingText = isCompleted ? "全部完成" : `剩下：${formatRemainingLessons(uncompletedNums)}`;
+          <div className="bg-card rounded-2xl border border-border/40 shadow-sm overflow-hidden">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-border/40 bg-muted/50">
+                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">課程名稱</th>
+                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">年級</th>
+                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">類型</th>
+                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">總課數</th>
+                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">已完成</th>
+                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">剩餘課數</th>
+                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap w-40">進度</th>
+                  <th className="px-4 py-3 w-16"></th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredCourses.map((course, idx) => {
+                  const courseLessons = lessons[course.id] || [];
+                  const completedCount = courseLessons.filter((l) => l.completed).length;
+                  const remaining = course.totalLessons - completedCount;
+                  const isCompleted = completedCount === course.totalLessons && course.totalLessons > 0;
+                  const progress = course.totalLessons > 0 ? (completedCount / course.totalLessons) * 100 : 0;
+                  const uncompletedNums = courseLessons.filter((l) => !l.completed).map((l) => l.lessonNumber);
+                  const remainingText = isCompleted ? "—" : formatRemainingLessons(uncompletedNums);
 
-            return (
-              <div 
-                key={course.id}
-                className="group relative bg-card rounded-2xl p-4 shadow-sm border border-border/40 transition-all active:scale-[0.98] animate-in fade-in slide-in-from-bottom-4 duration-300"
-                onContextMenu={(e) => {
-                  e.preventDefault();
-                  setDeleteId(course.id);
-                }}
-              >
-                <div className="absolute right-4 top-4 opacity-0 group-hover:opacity-100 transition-opacity">
-                  <Button 
-                    variant="ghost" 
-                    size="icon" 
-                    className="h-8 w-8 text-muted-foreground hover:text-destructive"
-                    onClick={(e) => { e.preventDefault(); e.stopPropagation(); setDeleteId(course.id); }}
+                  return (
+                    <tr
+                      key={course.id}
+                      className={cn(
+                        "group border-b border-border/30 last:border-0 transition-colors hover:bg-muted/40",
+                        idx % 2 === 1 && "bg-muted/20"
+                      )}
+                    >
+                      {/* 課程名稱 — clickable */}
+                      <td className="px-4 py-3">
+                        <Link
+                          href={`/course/${course.id}`}
+                          className="font-medium text-foreground hover:text-primary transition-colors block"
+                        >
+                          {course.courseName}
+                          {isCompleted && (
+                            <Badge className="ml-2 bg-secondary text-secondary-foreground border-none rounded-full px-2 py-0 text-[10px]">
+                              完成
+                            </Badge>
+                          )}
+                        </Link>
+                      </td>
+
+                      {/* 年級 */}
+                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
+                        {course.gradeName || <span className="text-muted-foreground/40">—</span>}
+                      </td>
+
+                      {/* 類型 */}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <Badge
+                          variant="outline"
+                          className="border-border/60 text-muted-foreground rounded-full px-2.5 py-0.5 font-normal"
+                        >
+                          {COURSE_TYPE_LABELS[course.courseType]}
+                        </Badge>
+                      </td>
+
+                      {/* 總課數 */}
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
+                        {course.totalLessons}
+                      </td>
+
+                      {/* 已完成 */}
+                      <td className="px-4 py-3 text-right tabular-nums font-medium text-foreground">
+                        {completedCount}
+                      </td>
+
+                      {/* 剩餘課數 */}
+                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground max-w-[160px] truncate" title={remainingText}>
+                        {isCompleted ? (
+                          <span className="text-muted-foreground/40">—</span>
+                        ) : (
+                          remainingText
+                        )}
+                      </td>
+
+                      {/* 進度 */}
+                      <td className="px-4 py-3 w-40">
+                        <div className="flex items-center gap-2 justify-end">
+                          <div className="w-20 h-2 bg-muted rounded-full overflow-hidden shrink-0">
+                            <div
+                              className={cn(
+                                "h-full rounded-full transition-all",
+                                isCompleted ? "bg-secondary-foreground/60" : "bg-primary"
+                              )}
+                              style={{ width: `${progress}%` }}
+                            />
+                          </div>
+                          <span className="tabular-nums text-xs text-muted-foreground w-8 text-right shrink-0">
+                            {Math.round(progress)}%
+                          </span>
+                        </div>
+                      </td>
+
+                      {/* 操作 */}
+                      <td className="px-4 py-3">
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                          <Link href={`/edit/${course.id}`}>
+                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
+                              <Pencil className="h-3.5 w-3.5" />
+                            </Button>
+                          </Link>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            onClick={() => setDeleteId(course.id)}
+                          >
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+
+            {/* Row count */}
+            <div className="px-4 py-2 border-t border-border/30 bg-muted/30">
+              <p className="text-xs text-muted-foreground">
+                共 {filteredCourses.length} 筆課程
+                {(filterType !== "all" || filterStatus !== "all") && (
+                  <button
+                    className="ml-2 underline hover:text-foreground transition-colors"
+                    onClick={() => { setFilterType("all"); setFilterStatus("all"); }}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </Button>
-                </div>
-                <Link href={`/course/${course.id}`} className="block">
-                  <div className="flex flex-wrap gap-2 mb-3">
-                    <Badge variant="secondary" className="bg-primary/10 text-primary hover:bg-primary/20 border-none px-2.5 py-0.5 rounded-full font-medium">
-                      {course.gradeName}
-                    </Badge>
-                    <Badge variant="outline" className="bg-background px-2.5 py-0.5 rounded-full text-muted-foreground border-border/60">
-                      {COURSE_TYPE_LABELS[course.courseType]}
-                    </Badge>
-                    {isCompleted && (
-                      <Badge className="bg-secondary text-secondary-foreground hover:bg-secondary border-none px-2.5 py-0.5 rounded-full font-medium">
-                        已完成
-                      </Badge>
-                    )}
-                  </div>
-                  
-                  <h3 className="text-lg font-bold text-foreground leading-tight mb-4 pr-8">
-                    {course.courseName}
-                  </h3>
-                  
-                  <div className="space-y-2">
-                    <div className="flex items-center justify-between text-sm">
-                      <span className="font-medium text-foreground">{completedCount} / {course.totalLessons} 完課</span>
-                      <span className="text-xs font-medium text-muted-foreground bg-muted px-2 py-1 rounded-md">
-                        {Math.round(progress)}%
-                      </span>
-                    </div>
-                    <Progress value={progress} className="h-2.5 rounded-full bg-muted overflow-hidden" indicatorClassName={isCompleted ? "bg-secondary" : "bg-primary"} />
-                    <p className="text-xs text-muted-foreground mt-2 line-clamp-1">
-                      {remainingText}
-                    </p>
-                  </div>
-                </Link>
-              </div>
-            );
-          })
+                    清除篩選
+                  </button>
+                )}
+              </p>
+            </div>
+          </div>
         )}
       </main>
 
-      <div className="fixed bottom-6 right-0 left-0 flex justify-center z-20 pointer-events-none px-4 max-w-md mx-auto">
-        <Link 
-          href="/add" 
-          className="pointer-events-auto bg-primary text-primary-foreground h-14 px-8 rounded-full shadow-lg shadow-primary/20 flex items-center justify-center gap-2 font-bold hover:bg-primary/90 active:scale-95 transition-all w-full max-w-[280px]"
-        >
-          <Plus className="w-5 h-5" />
-          新增課程
-        </Link>
-      </div>
-
+      {/* Delete confirm dialog */}
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <DialogContent className="max-w-[320px] rounded-2xl p-6">
           <DialogHeader>
@@ -207,13 +288,19 @@ export default function Home() {
           </DialogHeader>
           <DialogFooter className="flex-row gap-2 mt-4 sm:justify-center">
             <Button variant="outline" className="flex-1 rounded-xl" onClick={() => setDeleteId(null)}>取消</Button>
-            <Button variant="destructive" className="flex-1 rounded-xl" onClick={() => {
-              if (deleteId) {
-                deleteCourse(deleteId);
-                setDeleteId(null);
-                toast({ title: "已刪除課程" });
-              }
-            }}>確定刪除</Button>
+            <Button
+              variant="destructive"
+              className="flex-1 rounded-xl"
+              onClick={() => {
+                if (deleteId) {
+                  deleteCourse(deleteId);
+                  setDeleteId(null);
+                  toast({ title: "已刪除課程" });
+                }
+              }}
+            >
+              確定刪除
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
