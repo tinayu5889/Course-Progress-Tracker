@@ -141,11 +141,20 @@ function SortableRow({ course, lessons, onDelete, isDragOverlay = false }: RowPr
       </td>
 
       {/* 剩餘課數 */}
-      <td
-        className="px-3 py-3 text-right tabular-nums text-muted-foreground text-sm max-w-[160px] truncate"
-        title={remainingText}
-      >
-        {isCompleted ? <span className="text-muted-foreground/30">—</span> : remainingText}
+      <td className="px-3 py-3 text-right tabular-nums text-sm">
+        {isCompleted ? (
+          <span className="text-muted-foreground/30">—</span>
+        ) : (
+          <div className="flex flex-col items-end gap-0.5">
+            <span className="font-medium text-foreground">
+              {course.totalLessons - completedCount}
+              <span className="text-muted-foreground font-normal"> / {course.totalLessons}</span>
+            </span>
+            <span className="text-xs text-muted-foreground/70 truncate max-w-[140px]" title={remainingText}>
+              {remainingText}
+            </span>
+          </div>
+        )}
       </td>
 
       {/* 進度 */}
