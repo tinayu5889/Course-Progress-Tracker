@@ -18,6 +18,21 @@ const COURSE_TYPE_LABELS: Record<CourseType, string> = {
   other: "其他",
 };
 
+const GRADES = ["1年級", "2年級", "3年級", "4年級", "5年級", "6年級"] as const;
+const SEMESTERS = ["上學期", "下學期", "暑假", "寒假"] as const;
+
+function parseGradeName(gradeName: string): { grade: string; semester: string } | null {
+  for (const g of GRADES) {
+    if (gradeName.startsWith(g)) {
+      const rest = gradeName.slice(g.length);
+      if ((SEMESTERS as readonly string[]).includes(rest)) {
+        return { grade: g, semester: rest };
+      }
+    }
+  }
+  return null;
+}
+
 export default function CourseForm() {
   const { id } = useParams<{ id?: string }>();
   const [, setLocation] = useLocation();
@@ -28,7 +43,9 @@ export default function CourseForm() {
   const existingCourse = isEdit ? courses.find((c) => c.id === id) : null;
 
   const [courseName, setCourseName] = useState("");
-  const [gradeName, setGradeName] = useState("");
+  const [grade, setGrade] = useState("");
+  const [semester, setSemester] = useState("");
+  const [oldGradeName, setOldGradeName] = useState<string | null>(null);
   const [courseType, setCourseType] = useState<CourseType>("online");
   const [totalLessons, setTotalLessons] = useState("");
   const [notes, setNotes] = useState("");
@@ -37,10 +54,18 @@ export default function CourseForm() {
   useEffect(() => {
     if (existingCourse) {
       setCourseName(existingCourse.courseName);
-      setGradeName(existingCourse.gradeName);
       setCourseType(existingCourse.courseType);
       setTotalLessons(existingCourse.totalLessons.toString());
       setNotes(existingCourse.notes);
+
+      const parsed = parseGradeName(existingCourse.gradeName);
+      if (parsed) {
+        setGrade(parsed.grade);
+        setSemester(parsed.semester);
+      } else {
+        // Old free-text format — keep it visible but don't pre-fill dropdowns
+        setOldGradeName(existingCourse.gradeName || null);
+      }
     }
   }, [existingCourse]);
 
@@ -57,6 +82,9 @@ export default function CourseForm() {
     );
   }
 
+  // Combined grade name for storage
+  const combinedGrade = grade && semester ? `${grade}${semester}` : (grade || semester || oldGradeName || "");
+
   const canSave = courseName.trim().length > 0 && parseInt(totalLessons, 10) > 0;
 
   function handleSave() {
@@ -66,7 +94,7 @@ export default function CourseForm() {
 
     const data = {
       courseName: courseName.trim(),
-      gradeName: gradeName.trim(),
+      gradeName: combinedGrade.trim(),
       courseType,
       totalLessons: total,
       notes: notes.trim(),
@@ -83,6 +111,8 @@ export default function CourseForm() {
     }
     setSaving(false);
   }
+
+  const selectClass = "bg-card border border-border/60 rounded-xl h-12 px-3 text-base text-foreground w-full focus:outline-none focus:ring-2 focus:ring-ring focus:ring-offset-0 transition-colors";
 
   return (
     <div className="flex flex-col h-full bg-muted/30">
@@ -114,7 +144,7 @@ export default function CourseForm() {
         </Button>
       </header>
 
-      <main className="flex-1 overflow-y-auto p-4 space-y-5 pb-10">
+      <main className="flex-1 overflow-y-auto p-4 space-y-5 pb-10 max-w-lg">
         {/* Course name */}
         <div className="space-y-2">
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
@@ -130,18 +160,45 @@ export default function CourseForm() {
           />
         </div>
 
-        {/* Grade */}
+        {/* Grade + Semester dropdowns */}
         <div className="space-y-2">
           <Label className="text-xs font-semibold text-muted-foreground uppercase tracking-wider">
             適合年級
           </Label>
-          <Input
-            value={gradeName}
-            onChange={(e) => setGradeName(e.target.value)}
-            placeholder="例如：一年級、3-5年級"
-            className="bg-card border-border/60 rounded-xl h-12 text-base"
-            data-testid="input-grade-name"
-          />
+          {/* Show notice if existing data used old free-text format */}
+          {oldGradeName && !grade && (
+            <p className="text-xs text-muted-foreground bg-muted/60 rounded-lg px-3 py-2">
+              目前：<span className="font-medium text-foreground">{oldGradeName}</span>
+              　（選擇下方選單即可更新格式）
+            </p>
+          )}
+          <div className="flex gap-2">
+            <select
+              value={grade}
+              onChange={(e) => setGrade(e.target.value)}
+              className={selectClass}
+              data-testid="select-grade"
+            >
+              <option value="">選擇年級</option>
+              {GRADES.map((g) => (
+                <option key={g} value={g}>{g}</option>
+              ))}
+            </select>
+            <select
+              value={semester}
+              onChange={(e) => setSemester(e.target.value)}
+              className={selectClass}
+              data-testid="select-semester"
+            >
+              <option value="">選擇學期</option>
+              {SEMESTERS.map((s) => (
+                <option key={s} value={s}>{s}</option>
+              ))}
+            </select>
+          </div>
+          {grade && semester && (
+            <p className="text-xs text-primary font-medium pl-1">將顯示為：{grade}{semester}</p>
+          )}
         </div>
 
         {/* Course type */}

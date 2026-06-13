@@ -2,7 +2,7 @@ import { useState, useRef } from "react";
 import { Link } from "wouter";
 import { useCourses, CourseType } from "@/hooks/use-courses";
 import { formatRemainingLessons } from "@/lib/formatter";
-import { Plus, Download, Upload, Trash2, Filter, Pencil } from "lucide-react";
+import { Plus, Download, Upload, Trash2, Filter, Pencil, ArrowUp, ArrowDown } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
@@ -19,7 +19,7 @@ const COURSE_TYPE_LABELS: Record<CourseType, string> = {
 };
 
 export default function Home() {
-  const { courses, lessons, isLoaded, deleteCourse, exportData, importData } = useCourses();
+  const { courses, lessons, isLoaded, deleteCourse, moveCourse, exportData, importData } = useCourses();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -46,7 +46,10 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  const filteredCourses = courses.filter((c) => {
+  // Sort by sortOrder first, then apply filters
+  const sortedCourses = [...courses].sort((a, b) => a.sortOrder - b.sortOrder);
+
+  const filteredCourses = sortedCourses.filter((c) => {
     if (filterType !== "all" && c.courseType !== filterType) return false;
     const courseLessons = lessons[c.id] || [];
     const completedCount = courseLessons.filter((l) => l.completed).length;
@@ -59,6 +62,9 @@ export default function Home() {
   const activeFilterCount =
     (filterType !== "all" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
 
+  // For up/down disabling: use positions in the full sorted list (not filtered)
+  const sortedIds = sortedCourses.map(c => c.id);
+
   return (
     <div className="flex flex-col h-full bg-muted/30">
       {/* Header */}
@@ -70,7 +76,6 @@ export default function Home() {
         <div className="flex items-center gap-2">
           <input type="file" ref={fileInputRef} className="hidden" accept=".json" onChange={handleImport} />
 
-          {/* Filter menu */}
           <DropdownMenu>
             <DropdownMenuTrigger asChild>
               <Button variant="ghost" size="icon" className="relative h-9 w-9 rounded-full">
@@ -113,7 +118,6 @@ export default function Home() {
             </DropdownMenuContent>
           </DropdownMenu>
 
-          {/* Add button */}
           <Link href="/add">
             <Button size="sm" className="rounded-full px-4 h-9 gap-1.5">
               <Plus className="w-4 h-4" />
@@ -147,7 +151,7 @@ export default function Home() {
                   <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">已完成</th>
                   <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">剩餘課數</th>
                   <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap w-40">進度</th>
-                  <th className="px-4 py-3 w-16"></th>
+                  <th className="px-4 py-3 w-32 text-muted-foreground font-semibold text-center whitespace-nowrap">操作</th>
                 </tr>
               </thead>
               <tbody>
@@ -160,6 +164,11 @@ export default function Home() {
                   const uncompletedNums = courseLessons.filter((l) => !l.completed).map((l) => l.lessonNumber);
                   const remainingText = isCompleted ? "—" : formatRemainingLessons(uncompletedNums);
 
+                  // Up/down position is based on full sorted list, not filtered list
+                  const posInFull = sortedIds.indexOf(course.id);
+                  const isFirst = posInFull === 0;
+                  const isLast = posInFull === sortedIds.length - 1;
+
                   return (
                     <tr
                       key={course.id}
@@ -168,7 +177,7 @@ export default function Home() {
                         idx % 2 === 1 && "bg-muted/20"
                       )}
                     >
-                      {/* 課程名稱 — clickable */}
+                      {/* 課程名稱 */}
                       <td className="px-4 py-3">
                         <Link
                           href={`/course/${course.id}`}
@@ -190,10 +199,7 @@ export default function Home() {
 
                       {/* 類型 */}
                       <td className="px-4 py-3 whitespace-nowrap">
-                        <Badge
-                          variant="outline"
-                          className="border-border/60 text-muted-foreground rounded-full px-2.5 py-0.5 font-normal"
-                        >
+                        <Badge variant="outline" className="border-border/60 text-muted-foreground rounded-full px-2.5 py-0.5 font-normal">
                           {COURSE_TYPE_LABELS[course.courseType]}
                         </Badge>
                       </td>
@@ -210,11 +216,7 @@ export default function Home() {
 
                       {/* 剩餘課數 */}
                       <td className="px-4 py-3 text-right tabular-nums text-muted-foreground max-w-[160px] truncate" title={remainingText}>
-                        {isCompleted ? (
-                          <span className="text-muted-foreground/40">—</span>
-                        ) : (
-                          remainingText
-                        )}
+                        {isCompleted ? <span className="text-muted-foreground/40">—</span> : remainingText}
                       </td>
 
                       {/* 進度 */}
@@ -237,17 +239,51 @@ export default function Home() {
 
                       {/* 操作 */}
                       <td className="px-4 py-3">
-                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity justify-end">
+                        <div className="flex items-center gap-0.5 justify-center">
+                          {/* 上移 / 下移 — always visible, dim when disabled */}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-7 w-7",
+                              isFirst ? "text-muted-foreground/20 cursor-default" : "text-muted-foreground hover:text-foreground"
+                            )}
+                            disabled={isFirst}
+                            onClick={() => moveCourse(course.id, 'up')}
+                            title="上移"
+                          >
+                            <ArrowUp className="h-3.5 w-3.5" />
+                          </Button>
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            className={cn(
+                              "h-7 w-7",
+                              isLast ? "text-muted-foreground/20 cursor-default" : "text-muted-foreground hover:text-foreground"
+                            )}
+                            disabled={isLast}
+                            onClick={() => moveCourse(course.id, 'down')}
+                            title="下移"
+                          >
+                            <ArrowDown className="h-3.5 w-3.5" />
+                          </Button>
+                          {/* 編輯 / 刪除 — appear on hover */}
                           <Link href={`/edit/${course.id}`}>
-                            <Button variant="ghost" size="icon" className="h-7 w-7 text-muted-foreground hover:text-foreground">
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              className="h-7 w-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
+                              title="編輯"
+                            >
                               <Pencil className="h-3.5 w-3.5" />
                             </Button>
                           </Link>
                           <Button
                             variant="ghost"
                             size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+                            className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
                             onClick={() => setDeleteId(course.id)}
+                            title="刪除"
                           >
                             <Trash2 className="h-3.5 w-3.5" />
                           </Button>
@@ -259,7 +295,6 @@ export default function Home() {
               </tbody>
             </table>
 
-            {/* Row count */}
             <div className="px-4 py-2 border-t border-border/30 bg-muted/30">
               <p className="text-xs text-muted-foreground">
                 共 {filteredCourses.length} 筆課程
