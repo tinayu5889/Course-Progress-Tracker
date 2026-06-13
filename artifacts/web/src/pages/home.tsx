@@ -148,7 +148,6 @@ function SortableRow({ course, lessons, onDelete, isDragOverlay = false }: RowPr
           <div className="flex flex-col items-end gap-0.5">
             <span className="font-medium text-foreground">
               {course.totalLessons - completedCount}
-              <span className="text-muted-foreground font-normal"> / {course.totalLessons}</span>
             </span>
             <span className="text-xs text-muted-foreground/70 truncate max-w-[140px]" title={remainingText}>
               {remainingText}
