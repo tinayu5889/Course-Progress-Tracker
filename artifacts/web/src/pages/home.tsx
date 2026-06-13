@@ -1,13 +1,38 @@
 import { useState, useRef } from "react";
 import { Link } from "wouter";
-import { useCourses, CourseType } from "@/hooks/use-courses";
+import {
+  DndContext,
+  DragEndEvent,
+  DragOverlay,
+  DragStartEvent,
+  PointerSensor,
+  useSensor,
+  useSensors,
+  closestCenter,
+} from "@dnd-kit/core";
+import {
+  SortableContext,
+  useSortable,
+  verticalListSortingStrategy,
+  arrayMove,
+} from "@dnd-kit/sortable";
+import { CSS } from "@dnd-kit/utilities";
+import { useCourses, Course, CourseType } from "@/hooks/use-courses";
 import { formatRemainingLessons } from "@/lib/formatter";
-import { Plus, Download, Upload, Trash2, Filter, Pencil, ArrowUp, ArrowDown } from "lucide-react";
+import {
+  Plus, Download, Upload, Trash2, Filter, Pencil, GripVertical,
+} from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
-import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger, DropdownMenuSeparator } from "@/components/ui/dropdown-menu";
+import {
+  DropdownMenu, DropdownMenuContent, DropdownMenuItem,
+  DropdownMenuTrigger, DropdownMenuSeparator,
+} from "@/components/ui/dropdown-menu";
 import { useToast } from "@/hooks/use-toast";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from "@/components/ui/dialog";
+import {
+  Dialog, DialogContent, DialogHeader, DialogTitle,
+  DialogDescription, DialogFooter,
+} from "@/components/ui/dialog";
 import { cn } from "@/lib/utils";
 
 const COURSE_TYPE_LABELS: Record<CourseType, string> = {
@@ -18,14 +43,172 @@ const COURSE_TYPE_LABELS: Record<CourseType, string> = {
   other: "其他",
 };
 
+// ─── Sortable row ──────────────────────────────────────────────────────────────
+
+interface RowProps {
+  course: Course;
+  lessons: Record<string, { lessonNumber: number; completed: boolean }[]>;
+  onDelete: (id: string) => void;
+  isDragOverlay?: boolean;
+}
+
+function SortableRow({ course, lessons, onDelete, isDragOverlay = false }: RowProps) {
+  const {
+    attributes,
+    listeners,
+    setNodeRef,
+    transform,
+    transition,
+    isDragging,
+  } = useSortable({ id: course.id });
+
+  const style: React.CSSProperties = {
+    transform: CSS.Transform.toString(transform),
+    transition,
+    opacity: isDragging ? 0.35 : 1,
+    zIndex: isDragging ? 1 : undefined,
+  };
+
+  const courseLessons = lessons[course.id] || [];
+  const completedCount = courseLessons.filter((l) => l.completed).length;
+  const isCompleted = completedCount === course.totalLessons && course.totalLessons > 0;
+  const progress = course.totalLessons > 0 ? (completedCount / course.totalLessons) * 100 : 0;
+  const uncompletedNums = courseLessons.filter((l) => !l.completed).map((l) => l.lessonNumber);
+  const remainingText = isCompleted ? "—" : formatRemainingLessons(uncompletedNums);
+
+  return (
+    <tr
+      ref={setNodeRef}
+      style={style}
+      className={cn(
+        "group border-b border-border/30 last:border-0 transition-colors",
+        isDragOverlay
+          ? "bg-card shadow-lg rounded-xl"
+          : "hover:bg-muted/40"
+      )}
+    >
+      {/* Drag handle */}
+      <td className="pl-3 pr-1 py-3 w-8">
+        <button
+          {...attributes}
+          {...listeners}
+          className={cn(
+            "flex items-center justify-center w-6 h-6 rounded text-muted-foreground/40 hover:text-muted-foreground transition-colors",
+            isDragOverlay ? "cursor-grabbing" : "cursor-grab"
+          )}
+          tabIndex={-1}
+          aria-label="拖曳排序"
+        >
+          <GripVertical className="w-4 h-4" />
+        </button>
+      </td>
+
+      {/* 課程名稱 */}
+      <td className="px-3 py-3">
+        <Link
+          href={`/course/${course.id}`}
+          className="font-medium text-foreground hover:text-primary transition-colors block"
+        >
+          {course.courseName}
+          {isCompleted && (
+            <Badge className="ml-2 bg-secondary text-secondary-foreground border-none rounded-full px-2 py-0 text-[10px]">
+              完成
+            </Badge>
+          )}
+        </Link>
+      </td>
+
+      {/* 年級 */}
+      <td className="px-3 py-3 text-muted-foreground whitespace-nowrap text-sm">
+        {course.gradeName || <span className="text-muted-foreground/30">—</span>}
+      </td>
+
+      {/* 類型 */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <Badge variant="outline" className="border-border/60 text-muted-foreground rounded-full px-2.5 py-0.5 font-normal text-xs">
+          {COURSE_TYPE_LABELS[course.courseType]}
+        </Badge>
+      </td>
+
+      {/* 總課數 */}
+      <td className="px-3 py-3 text-right tabular-nums text-muted-foreground text-sm">
+        {course.totalLessons}
+      </td>
+
+      {/* 已完成 */}
+      <td className="px-3 py-3 text-right tabular-nums font-medium text-foreground text-sm">
+        {completedCount}
+      </td>
+
+      {/* 剩餘課數 */}
+      <td
+        className="px-3 py-3 text-right tabular-nums text-muted-foreground text-sm max-w-[160px] truncate"
+        title={remainingText}
+      >
+        {isCompleted ? <span className="text-muted-foreground/30">—</span> : remainingText}
+      </td>
+
+      {/* 進度 */}
+      <td className="px-3 py-3 w-36">
+        <div className="flex items-center gap-2 justify-end">
+          <div className="w-16 h-2 bg-muted rounded-full overflow-hidden shrink-0">
+            <div
+              className={cn(
+                "h-full rounded-full transition-all",
+                isCompleted ? "bg-secondary-foreground/60" : "bg-primary"
+              )}
+              style={{ width: `${progress}%` }}
+            />
+          </div>
+          <span className="tabular-nums text-xs text-muted-foreground w-8 text-right shrink-0">
+            {Math.round(progress)}%
+          </span>
+        </div>
+      </td>
+
+      {/* 操作 */}
+      <td className="px-3 py-3 w-20">
+        <div className="flex items-center gap-0.5 justify-end opacity-0 group-hover:opacity-100 transition-opacity">
+          <Link href={`/edit/${course.id}`}>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-7 w-7 text-muted-foreground hover:text-foreground"
+              title="編輯"
+            >
+              <Pencil className="h-3.5 w-3.5" />
+            </Button>
+          </Link>
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-7 w-7 text-muted-foreground hover:text-destructive"
+            onClick={() => onDelete(course.id)}
+            title="刪除"
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </td>
+    </tr>
+  );
+}
+
+// ─── Home page ─────────────────────────────────────────────────────────────────
+
 export default function Home() {
-  const { courses, lessons, isLoaded, deleteCourse, moveCourse, exportData, importData } = useCourses();
+  const { courses, lessons, isLoaded, deleteCourse, reorderCourses, exportData, importData } = useCourses();
   const { toast } = useToast();
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const [filterType, setFilterType] = useState<CourseType | "all">("all");
   const [filterStatus, setFilterStatus] = useState<"all" | "active" | "completed">("all");
   const [deleteId, setDeleteId] = useState<string | null>(null);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const sensors = useSensors(
+    useSensor(PointerSensor, { activationConstraint: { distance: 6 } })
+  );
 
   if (!isLoaded) return null;
 
@@ -46,9 +229,10 @@ export default function Home() {
     if (fileInputRef.current) fileInputRef.current.value = "";
   };
 
-  // Sort by sortOrder first, then apply filters
+  // Full sorted list (for drag reordering)
   const sortedCourses = [...courses].sort((a, b) => a.sortOrder - b.sortOrder);
 
+  // Filtered view (for display)
   const filteredCourses = sortedCourses.filter((c) => {
     if (filterType !== "all" && c.courseType !== filterType) return false;
     const courseLessons = lessons[c.id] || [];
@@ -62,8 +246,27 @@ export default function Home() {
   const activeFilterCount =
     (filterType !== "all" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
 
-  // For up/down disabling: use positions in the full sorted list (not filtered)
-  const sortedIds = sortedCourses.map(c => c.id);
+  const activeCourse = activeId ? courses.find(c => c.id === activeId) ?? null : null;
+
+  function handleDragStart(event: DragStartEvent) {
+    setActiveId(event.active.id as string);
+  }
+
+  function handleDragEnd(event: DragEndEvent) {
+    setActiveId(null);
+    const { active, over } = event;
+    if (!over || active.id === over.id) return;
+
+    const oldIndex = sortedCourses.findIndex(c => c.id === active.id);
+    const newIndex = sortedCourses.findIndex(c => c.id === over.id);
+    if (oldIndex === -1 || newIndex === -1) return;
+
+    const reordered = arrayMove(sortedCourses, oldIndex, newIndex);
+    reorderCourses(reordered.map(c => c.id));
+  }
+
+  // IDs for SortableContext: use filtered list so drag works correctly within the visible set
+  const sortableIds = filteredCourses.map(c => c.id);
 
   return (
     <div className="flex flex-col h-full bg-muted/30">
@@ -127,7 +330,7 @@ export default function Home() {
         </div>
       </header>
 
-      {/* Main content */}
+      {/* Main */}
       <main className="flex-1 overflow-auto p-4">
         {filteredCourses.length === 0 ? (
           <div className="flex flex-col items-center justify-center h-64 text-center">
@@ -141,164 +344,62 @@ export default function Home() {
           </div>
         ) : (
           <div className="bg-card rounded-2xl border border-border/40 shadow-sm overflow-hidden">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-border/40 bg-muted/50">
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">課程名稱</th>
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">年級</th>
-                  <th className="text-left px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">類型</th>
-                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">總課數</th>
-                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">已完成</th>
-                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap">剩餘課數</th>
-                  <th className="text-right px-4 py-3 font-semibold text-muted-foreground whitespace-nowrap w-40">進度</th>
-                  <th className="px-4 py-3 w-32 text-muted-foreground font-semibold text-center whitespace-nowrap">操作</th>
-                </tr>
-              </thead>
-              <tbody>
-                {filteredCourses.map((course, idx) => {
-                  const courseLessons = lessons[course.id] || [];
-                  const completedCount = courseLessons.filter((l) => l.completed).length;
-                  const remaining = course.totalLessons - completedCount;
-                  const isCompleted = completedCount === course.totalLessons && course.totalLessons > 0;
-                  const progress = course.totalLessons > 0 ? (completedCount / course.totalLessons) * 100 : 0;
-                  const uncompletedNums = courseLessons.filter((l) => !l.completed).map((l) => l.lessonNumber);
-                  const remainingText = isCompleted ? "—" : formatRemainingLessons(uncompletedNums);
+            <DndContext
+              sensors={sensors}
+              collisionDetection={closestCenter}
+              onDragStart={handleDragStart}
+              onDragEnd={handleDragEnd}
+            >
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-border/40 bg-muted/50">
+                    {/* Handle column */}
+                    <th className="w-8 pl-3" />
+                    <th className="text-left px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">課程名稱</th>
+                    <th className="text-left px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">年級</th>
+                    <th className="text-left px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">類型</th>
+                    <th className="text-right px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">總課數</th>
+                    <th className="text-right px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">已完成</th>
+                    <th className="text-right px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap">剩餘課數</th>
+                    <th className="text-right px-3 py-3 font-semibold text-muted-foreground whitespace-nowrap w-36">進度</th>
+                    <th className="w-20" />
+                  </tr>
+                </thead>
+                <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+                  <tbody>
+                    {filteredCourses.map((course) => (
+                      <SortableRow
+                        key={course.id}
+                        course={course}
+                        lessons={lessons}
+                        onDelete={setDeleteId}
+                      />
+                    ))}
+                  </tbody>
+                </SortableContext>
+              </table>
 
-                  // Up/down position is based on full sorted list, not filtered list
-                  const posInFull = sortedIds.indexOf(course.id);
-                  const isFirst = posInFull === 0;
-                  const isLast = posInFull === sortedIds.length - 1;
-
-                  return (
-                    <tr
-                      key={course.id}
-                      className={cn(
-                        "group border-b border-border/30 last:border-0 transition-colors hover:bg-muted/40",
-                        idx % 2 === 1 && "bg-muted/20"
-                      )}
-                    >
-                      {/* 課程名稱 */}
-                      <td className="px-4 py-3">
-                        <Link
-                          href={`/course/${course.id}`}
-                          className="font-medium text-foreground hover:text-primary transition-colors block"
-                        >
-                          {course.courseName}
-                          {isCompleted && (
-                            <Badge className="ml-2 bg-secondary text-secondary-foreground border-none rounded-full px-2 py-0 text-[10px]">
-                              完成
-                            </Badge>
-                          )}
-                        </Link>
-                      </td>
-
-                      {/* 年級 */}
-                      <td className="px-4 py-3 text-muted-foreground whitespace-nowrap">
-                        {course.gradeName || <span className="text-muted-foreground/40">—</span>}
-                      </td>
-
-                      {/* 類型 */}
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <Badge variant="outline" className="border-border/60 text-muted-foreground rounded-full px-2.5 py-0.5 font-normal">
-                          {COURSE_TYPE_LABELS[course.courseType]}
-                        </Badge>
-                      </td>
-
-                      {/* 總課數 */}
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground">
-                        {course.totalLessons}
-                      </td>
-
-                      {/* 已完成 */}
-                      <td className="px-4 py-3 text-right tabular-nums font-medium text-foreground">
-                        {completedCount}
-                      </td>
-
-                      {/* 剩餘課數 */}
-                      <td className="px-4 py-3 text-right tabular-nums text-muted-foreground max-w-[160px] truncate" title={remainingText}>
-                        {isCompleted ? <span className="text-muted-foreground/40">—</span> : remainingText}
-                      </td>
-
-                      {/* 進度 */}
-                      <td className="px-4 py-3 w-40">
-                        <div className="flex items-center gap-2 justify-end">
-                          <div className="w-20 h-2 bg-muted rounded-full overflow-hidden shrink-0">
-                            <div
-                              className={cn(
-                                "h-full rounded-full transition-all",
-                                isCompleted ? "bg-secondary-foreground/60" : "bg-primary"
-                              )}
-                              style={{ width: `${progress}%` }}
-                            />
-                          </div>
-                          <span className="tabular-nums text-xs text-muted-foreground w-8 text-right shrink-0">
-                            {Math.round(progress)}%
-                          </span>
-                        </div>
-                      </td>
-
-                      {/* 操作 */}
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-0.5 justify-center">
-                          {/* 上移 / 下移 — always visible, dim when disabled */}
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                              "h-7 w-7",
-                              isFirst ? "text-muted-foreground/20 cursor-default" : "text-muted-foreground hover:text-foreground"
-                            )}
-                            disabled={isFirst}
-                            onClick={() => moveCourse(course.id, 'up')}
-                            title="上移"
-                          >
-                            <ArrowUp className="h-3.5 w-3.5" />
-                          </Button>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className={cn(
-                              "h-7 w-7",
-                              isLast ? "text-muted-foreground/20 cursor-default" : "text-muted-foreground hover:text-foreground"
-                            )}
-                            disabled={isLast}
-                            onClick={() => moveCourse(course.id, 'down')}
-                            title="下移"
-                          >
-                            <ArrowDown className="h-3.5 w-3.5" />
-                          </Button>
-                          {/* 編輯 / 刪除 — appear on hover */}
-                          <Link href={`/edit/${course.id}`}>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              className="h-7 w-7 text-muted-foreground hover:text-foreground opacity-0 group-hover:opacity-100 transition-opacity"
-                              title="編輯"
-                            >
-                              <Pencil className="h-3.5 w-3.5" />
-                            </Button>
-                          </Link>
-                          <Button
-                            variant="ghost"
-                            size="icon"
-                            className="h-7 w-7 text-muted-foreground hover:text-destructive opacity-0 group-hover:opacity-100 transition-opacity"
-                            onClick={() => setDeleteId(course.id)}
-                            title="刪除"
-                          >
-                            <Trash2 className="h-3.5 w-3.5" />
-                          </Button>
-                        </div>
-                      </td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
+              {/* Drag overlay — floating ghost row while dragging */}
+              <DragOverlay dropAnimation={null}>
+                {activeCourse ? (
+                  <table className="w-full text-sm table-fixed" style={{ width: "100%" }}>
+                    <tbody>
+                      <SortableRow
+                        course={activeCourse}
+                        lessons={lessons}
+                        onDelete={() => {}}
+                        isDragOverlay
+                      />
+                    </tbody>
+                  </table>
+                ) : null}
+              </DragOverlay>
+            </DndContext>
 
             <div className="px-4 py-2 border-t border-border/30 bg-muted/30">
               <p className="text-xs text-muted-foreground">
                 共 {filteredCourses.length} 筆課程
-                {(filterType !== "all" || filterStatus !== "all") && (
+                {activeFilterCount > 0 && (
                   <button
                     className="ml-2 underline hover:text-foreground transition-colors"
                     onClick={() => { setFilterType("all"); setFilterStatus("all"); }}
@@ -312,7 +413,7 @@ export default function Home() {
         )}
       </main>
 
-      {/* Delete confirm dialog */}
+      {/* Delete dialog */}
       <Dialog open={!!deleteId} onOpenChange={(open) => !open && setDeleteId(null)}>
         <DialogContent className="max-w-[320px] rounded-2xl p-6">
           <DialogHeader>
